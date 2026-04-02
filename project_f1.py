@@ -1561,6 +1561,23 @@ def main():
         with st.spinner("Loading calendar..."):
             schedule = get_race_schedule(year)
 
+        # ── Filter out future races ────────────────────────────────────────────
+        # today's date — races that haven't happened yet have no data in FastF1
+        today = pd.Timestamp.now(tz="UTC").normalize()
+
+        # Keep only races whose EventDate is in the past.
+        # We add a 1-day buffer so a race happening TODAY is included
+        # (it may have finished depending on timezone).
+        schedule = schedule[
+            pd.to_datetime(schedule["EventDate"], utc=True) <= today + pd.Timedelta(days=1)
+        ].reset_index(drop=True)
+
+        # Edge case: if NO races have happened yet for this year
+        # (e.g. user picks a future year), show a friendly message and stop.
+        if schedule.empty:
+            st.warning(f"No races have taken place yet in {year}.")
+            st.stop()   # st.stop() halts execution cleanly — no error shown
+
         schedule["Label"] = schedule.apply(
             lambda row: f"R{int(row['RoundNumber'])}  —  {row['EventName']}",
             axis=1,
@@ -1620,11 +1637,6 @@ def main():
             disabled=(mode == "Head to Head" and driver_1 == driver_2),
         )
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # !! EVERYTHING BELOW THIS LINE WAS MISSING FROM YOUR NEW VERSION !!
-    # This is what actually runs when the button is clicked.
-    # ─────────────────────────────────────────────────────────────────────────
-
     # Show welcome screen until user clicks Load
     if not load_button:
         st.markdown("""
@@ -1638,22 +1650,19 @@ def main():
         The app will download the data (first load takes ~30s, then it's cached)
         and display all charts automatically.
         """)
-        return   # stop here — nothing else runs until Load is clicked
+        return
 
     # Load the session
     with st.spinner(f"Loading {gp} {year} — {session_type}..."):
         session = load_session(year, gp, session_code)
 
-    # Stop if loading failed (load_session shows the error message itself)
     if session is None:
         return
 
     fastf1.plotting.setup_mpl(mpl_timedelta_support=False, color_scheme="fastf1")
 
-    # Success banner
     st.success(f"Loaded: {session.event['EventName']} {year} — {session_type}")
 
-    # Route to the correct module
     if mode == "Session Overview":
         if session_code == "Q":
             show_qualifying_overview(session)
@@ -1677,7 +1686,6 @@ def main():
             show_h2h_qualifying(session, driver_1, driver_2)
         else:
             show_h2h_race(session, driver_1, driver_2)
-
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 # Python runs this block when you execute: streamlit run f1_dashboard.py
